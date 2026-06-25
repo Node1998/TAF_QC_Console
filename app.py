@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 import os
 import re
 import csv
@@ -10,15 +7,14 @@ from datetime import datetime, timezone
 import requests
 from flask import Flask, request, jsonify, Response
 
+# --- Constants (no changes here) ---
 APP_DIR = os.getcwd()
-# Use /data/ directory if on Render (for persistent disk), otherwise local directory
 DB_PATH = os.environ.get("DB_PATH", os.path.join(APP_DIR, "taf_validation.db"))
 AWC_URL = "https://aviationweather.gov/api/data/taf"
-
 app = Flask(__name__)
-
-# Basic Weather Phenomena regex placeholder to prevent crashes
 _WX = r"VC|MI|BC|PR|DR|BL|SH|TS|FZ|DZ|RA|SN|SG|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PY|PO|SQ|FC|SS|DS"
+
+# --- Database Functions ---
 
 def init_db():
     """Create the log table if it does not yet exist."""
@@ -30,70 +26,35 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS taf_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            icao TEXT,
-            report_type TEXT,
-            issue_time TEXT,
-            validity TEXT,
-            wind TEXT,
-            wind_speed INTEGER,
-            wind_gust INTEGER,
-            visibility TEXT,
-            cloud_layers TEXT,
-            weather_phenomena TEXT,
-            altimeter TEXT,
-            change_groups TEXT,
-            qc_status TEXT,
-            qc_score INTEGER,
-            source TEXT,
-            raw_text TEXT,
-            logged_at TEXT
+            icao TEXT, report_type TEXT, issue_time TEXT, validity TEXT,
+            wind TEXT, wind_speed INTEGER, wind_gust INTEGER, visibility TEXT,
+            cloud_layers TEXT, weather_phenomena TEXT, altimeter TEXT,
+            change_groups TEXT, qc_status TEXT, qc_score INTEGER,
+            source TEXT, raw_text TEXT, logged_at TEXT
         )
     """)
     conn.commit()
     conn.close()
+
 def upgrade_db():
     """Safely adds new regional comparison columns to an existing database."""
     conn = sqlite3.connect(DB_PATH)
     try:
-        conn.execute("ALTER TABLE taf_logs ADD COLUMN regional_avg INTEGER")
-        conn.execute("ALTER TABLE taf_logs ADD COLUMN regional_flag TEXT")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass # Columns already exist
-    conn.close()
-
-def check_regional_performance(primary_score, nearby_icaos_str):
-    """Fetches nearby TAFs, averages their scores, and compares to primary."""
-    if not nearby_icaos_str:
-        return None, None
-    
-    icaos = [i.strip().upper() for i in nearby_icaos_str.split(',') if len(i.strip()) == 4]
-    if not icaos:
-        return None, None
-
-    scores = []
-    for icao in icaos:
-        raw = fetch_taf(icao)
-        if raw:
-            parsed = parse_taf(raw)
-            qc = qc_process(parsed)
-            scores.append(qc["score"])
-    
-    if not scores:
-        return None, None
-        
-    avg_score = int(sum(scores) / len(scores))
-    
-    # Flag if the primary score is 10 or more points below the regional average
-    if primary_score <= (avg_score - 10):
-        flag = "UNDERPERFORMING"
-    else:
-        flag = "NOMINAL"
-        
-    return avg_score, flag
-
+        # Check if one of the columns exists before trying to add them
+        cursor = conn.execute("PRAGMA table_info(taf_logs)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'regional_avg' not in columns:
+            conn.execute("ALTER TABLE taf_logs ADD COLUMN regional_avg INTEGER")
+            conn.execute("ALTER TABLE taf_logs ADD COLUMN regional_flag TEXT")
+            conn.commit()
+    except sqlite3.OperationalError as e:
+        # This will catch other potential errors during migration
+        print(f"Database migration error: {e}")
+    finally:
+        conn.close()
 
 def insert_log(data, qc, source, regional_avg=None, regional_flag=None):
+    """Inserts a complete, scored TAF record including regional data into the DB."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         INSERT INTO taf_logs (
@@ -106,7 +67,7 @@ def insert_log(data, qc, source, regional_avg=None, regional_flag=None):
         data.get("icao"), data.get("type"), data.get("issue_time"),
         data.get("validity"), data.get("wind"), data.get("wind_speed"),
         data.get("wind_gust"), data.get("visibility"), data.get("cloud_layers"),
-        data.get("weather_phenomena"), data.get("altimeter"), data.get("change_groups"), 
+        data.get("weather_phenomena"), data.get("altimeter"), data.get("change_groups"),
         qc["status"], qc["score"], source, data.get("raw_text"),
         datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
         regional_avg, regional_flag
@@ -115,6 +76,10 @@ def insert_log(data, qc, source, regional_avg=None, regional_flag=None):
     rowid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.close()
     return rowid
+
+# Remaining old database functions (fetch_logs, export_csv) are unchanged...
+
+
 
 def fetch_logs(limit=200):
     conn = sqlite3.connect(DB_PATH)
@@ -139,6 +104,46 @@ def export_csv():
     else:
         buf.write("no records\n")
     return buf.getvalue()
+# ... (after export_csv function)
+
+def check_regional_performance(primary_score, nearby_icaos_str):
+    """
+    Fetches TAFs for nearby stations, averages their QC scores, and compares
+    the primary station's score against that average.
+
+    Returns:
+        A tuple of (average_score, flag_text) or (None, None) if unable to process.
+    """
+    if not nearby_icaos_str:
+        return None, None
+
+    # Clean up input into a list of valid ICAO codes
+    icaos = [i.strip().upper() for i in nearby_icaos_str.split(',') if len(i.strip()) == 4]
+    if not icaos:
+        return None, None
+
+    scores = []
+    for icao in icaos:
+        raw = fetch_taf(icao)
+        if raw:
+            parsed = parse_taf(raw)
+            qc = qc_process(parsed)
+            scores.append(qc["score"])
+
+    if not scores:
+        return None, None
+
+    avg_score = int(sum(scores) / len(scores))
+
+    # Flag if the primary score is 10+ points below the regional average
+    if primary_score <= (avg_score - 10):
+        flag = "UNDERPERFORMING"
+    else:
+        flag = "NOMINAL"
+
+    return avg_score, flag
+
+# Data ingestion and parsing functions (fetch_taf, parse_taf) are unchanged...
 
 def fetch_taf(icao):
     """Return the raw TAF string for an ICAO, or None on failure."""
@@ -278,6 +283,127 @@ def qc_process(d):
     else:
         status = "PASS"
     return {"status": status, "score": score, "findings": findings}
+# ... (after qc_process function)
+
+@app.route("/")
+def index():
+    return Response(PAGE, mimetype="text/html")
+
+@app.route("/api/process", methods=["POST"])
+def api_process():
+    """Ingest, parse, QC, compare regionally, and log a single TAF."""
+    payload = request.get_json(force=True, silent=True) or {}
+    mode = payload.get("mode", "live")
+    nearby_str = payload.get("nearby_icaos", "") # Get nearby stations
+
+    if mode == "live":
+        icao = (payload.get("icao") or "").strip().upper()
+        raw = fetch_taf(icao)
+        if not raw:
+            return jsonify({"ok": False, "error": f"No TAF returned for '{icao}'."}), 200
+        data = parse_taf(raw)
+        source = "LIVE"
+    else: # manual
+        data = build_manual_record(payload)
+        source = "MANUAL"
+
+    # Run primary QC
+    qc = qc_process(data)
+
+    # Run the regional comparison
+    reg_avg, reg_flag = check_regional_performance(qc["score"], nearby_str)
+    if reg_flag:
+        # Add a finding to show on the UI
+        severity = "warning" if reg_flag == "UNDERPERFORMING" else "info"
+        qc["findings"].append({
+            "severity": severity,
+            "message": f"Regional Avg Score: {reg_avg}/100. Station Status: {reg_flag}."
+        })
+        # If underperforming, force a REVIEW status even if it passed
+        if reg_flag == "UNDERPERFORMING" and qc["status"] == "PASS":
+            qc["status"] = "REVIEW"
+
+    # Log everything to the database
+    rowid = insert_log(data, qc, source, reg_avg, reg_flag)
+    return jsonify({"ok": True, "id": rowid, "source": source, "parsed": data, "qc": qc})
+
+# ... (build_manual_record, api_logs, api_export functions are unchanged) ...
+
+
+# --- Layer 4: Frontend HTML with Regional Input ---
+PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TAF QC Console</title>
+    <style>
+        :root{--bg:#0b1220; --panel:#111c2e; --panel2:#0e1726; --line:#22324a;--ink:#e6edf6; --muted:#8090a8; --amber:#f5a623; --cyan:#56b4e0;--pass:#3ddc84; --review:#f5a623; --fail:#ff5d5d;--mono:"JetBrains Mono","SFMono-Regular","Cascadia Code",Consolas,"Roboto Mono","DejaVu Sans Mono",monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+        *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5}a{color:var(--cyan)}.wrap{max-width:1060px;margin:0 auto;padding:0 20px 64px}header{border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0e1828,#0b1220);position:sticky;top:0;z-index:5}.bar{max-width:1060px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}.brand{display:flex;align-items:baseline;gap:10px}.brand b{font-size:18px;letter-spacing:.06em}.tag{font-family:var(--mono);font-size:11px;color:var(--amber);border:1px solid var(--amber);border-radius:3px;padding:2px 7px;letter-spacing:.08em}.clock{margin-left:auto;font-family:var(--mono);color:var(--cyan);font-size:14px;letter-spacing:.05em}.clock span{color:var(--muted);font-size:11px;margin-right:6px}h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin-top:18px}.modes{display:flex;gap:6px;margin-bottom:16px}.modes button{flex:0 0 auto;background:transparent;border:1px solid var(--line);color:var(--muted);padding:7px 16px;border-radius:6px;cursor:pointer;font-family:var(--mono);font-size:12px;letter-spacing:.06em}.modes button.on{color:var(--bg);background:var(--amber);border-color:var(--amber)}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}label{display:block;font-size:11px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;margin-bottom:5px}input{background:var(--panel2);border:1px solid var(--line);color:var(--ink);font-family:var(--mono);font-size:15px;padding:9px 11px;border-radius:6px;width:100%}input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 2px rgba(86,180,224,.18)}.field{flex:1 1 130px}.field.icao{flex:0 0 130px}.go{flex:0 0 auto;background:var(--cyan);color:#04121d;border:none;font-weight:700;font-family:var(--mono);letter-spacing:.06em;padding:10px 22px;border-radius:6px;cursor:pointer;font-size:13px}.go:disabled{opacity:.5;cursor:default}.manual{display:none}.manual.on{display:block}.grid3{display:grid;grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));gap:10px}#out{display:none}.raw{font-family:var(--mono);font-size:14px;background:#070d18;border:1px solid var(--line);border-left:3px solid var(--cyan);border-radius:6px;padding:14px 16px;white-space:pre-wrap;word-break:break-word;color:#cfe2f2}.verdict{display:flex;align-items:center;gap:18px;margin:16px 0 6px}.badge{font-family:var(--mono);font-weight:700;letter-spacing:.1em;font-size:15px;padding:8px 18px;border-radius:6px;border:1px solid}.b-PASS{color:var(--pass);border-color:var(--pass);background:rgba(61,220,132,.08)}.b-REVIEW{color:var(--review);border-color:var(--review);background:rgba(245,166,35,.08)}.b-FAIL{color:var(--fail);border-color:var(--fail);background:rgba(255,93,93,.08)}.gauge{flex:1 1 auto}.gauge .nums{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:5px}.gauge .nums b{color:var(--ink);font-size:15px}.track{height:8px;background:#0a1322;border-radius:5px;overflow:hidden}.fill{height:100%;width:0;border-radius:5px;transition:width .6s ease}.groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-top:16px}.cell{background:var(--panel2);padding:10px 12px}.cell .k{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.cell .v{font-family:var(--mono);font-size:14px;margin-top:3px;color:var(--ink);word-break:break-word}.cell .v.none{color:#4a5a72}.findings{margin-top:16px;display:flex;flex-direction:column;gap:7px}.find{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;padding:8px 12px;border-radius:6px;background:var(--panel2);border-left:3px solid var(--line)}.find .sev{font-family:var(--mono);font-size:10px;letter-spacing:.08em;padding:2px 6px;border-radius:3px;flex:0 0 auto;margin-top:1px}.find.critical,.find.error{border-left-color:var(--fail)}.find.critical .sev,.find.error .sev{color:var(--fail);background:rgba(255,93,93,.12)}.find.warning{border-left-color:var(--review)}.find.warning .sev{color:var(--review);background:rgba(245,166,35,.12)}.find.info{border-left-color:var(--cyan)}.find.info .sev{color:var(--cyan);background:rgba(86,180,224,.12)}.clean{color:var(--pass);font-family:var(--mono);font-size:13px;margin-top:14px}.loghead{display:flex;align-items:center;gap:12px}.loghead .btn{margin-left:auto}.btn{background:transparent;border:1px solid var(--line);color:var(--ink);padding:7px 14px;border-radius:6px;cursor:pointer;font-family:var(--mono);font-size:12px;letter-spacing:.05em}.btn:hover{border-color:var(--cyan)}.btn.exp{border-color:var(--amber);color:var(--amber)}table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}th{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}td{padding:9px 10px;border-bottom:1px solid #16243a;font-family:var(--mono)}tr:hover td{background:#0e1828}.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px}.pill.PASS{color:var(--pass);background:rgba(61,220,132,.12)}.pill.REVIEW{color:var(--review);border-color:var(--review);background:rgba(245,166,35,.12)}.pill.FAIL{color:var(--fail);border-color:var(--fail);background:rgba(255,93,93,.12)}.empty{color:var(--muted);font-family:var(--mono);font-size:13px;padding:18px 4px}.src{color:var(--muted);font-size:11px}@media(max-width:620px){.grid3{grid-template-columns:1fr 1fr}.field.icao{flex:1 1 100%}.clock{display:none}th.hide,td.hide{display:none}}
+    </style>
+</head>
+<body>
+<header><div class="bar"><div class="brand"><b>TAF QC CONSOLE</b><span class="tag">AFMAN 15-124</span></div><div class="clock"><span>ZULU</span><b id="zulu">--:--:--</b></div></div></header>
+<div class="wrap">
+<section class="panel">
+    <h2>Ingest forecast</h2>
+    <div class="modes"><button id="m-live" class="on" onclick="setMode('live')">Fetch live</button><button id="m-manual" onclick="setMode('manual')">Manual entry</button></div>
+    <div id="liveForm" class="row">
+        <div class="field icao"><label>Station ICAO</label><input id="icao" value="KLSV" maxlength="4" placeholder="KLSV" autocomplete="off" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="field"><label>Nearby Stations (Comma separated)</label><input id="nearby_live" placeholder="KEDW, KNLS, KTNX" autocomplete="off" oninput="this.value=this.value.toUpperCase()"></div>
+        <button class="go" id="goLive" onclick="process()">Process</button>
+    </div>
+    <div id="manualForm" class="manual">
+        <div class="grid3">
+            <div><label>ICAO</label><input id="m_icao" placeholder="KEDW"></div>
+            <div><label>Issue time</label><input id="m_issue" placeholder="121500Z"></div>
+            <div><label>Valid period</label><input id="m_valid" placeholder="1215/1315"></div>
+            <div><label>Wind dir</label><input id="m_wdir" placeholder="270"></div>
+            <div><label>Wind speed (KT)</label><input id="m_wspd" placeholder="10"></div>
+            <div><label>Gust (KT, 0=none)</label><input id="m_wgst" placeholder="0"></div>
+            <div><label>Visibility</label><input id="m_vis" placeholder="9999 or 7SM"></div>
+            <div><label>Clouds</label><input id="m_cld" placeholder="SCT250, BKN100"></div>
+            <div><label>Weather</label><input id="m_wx" placeholder="BR, -RA"></div>
+            <div><label>Altimeter</label><input id="m_alt" placeholder="2992"></div>
+            <div><label>Nearby Stations (Comma separated)</label><input id="nearby_manual" placeholder="KEDW, KNLS"></div>
+        </div>
+        <div style="margin-top:14px"><button class="go" onclick="process()">Process</button></div>
+    </div>
+</section>
+<section class="panel" id="out" style="display:none">
+    <h2>QC result</h2>
+    <div class="raw" id="raw"></div>
+    <div class="verdict"><div class="badge" id="badge"></div><div class="gauge"><div class="nums"><span>Quality score</span><b><span id="score">0</span>/100</b></div><div class="track"><div class="fill" id="fill"></div></div></div></div>
+    <div class="groups" id="groups"></div>
+    <div id="findwrap"></div>
+</section>
+<section class="panel">
+    <div class="loghead"><h2 style="margin:0">Validation log</h2><button class="btn" onclick="loadLogs()">Refresh</button><button class="btn exp" onclick="location.href='/api/export'">Export CSV</button></div>
+    <div id="logbox"><div class="empty">Loading...</div></div>
+</section>
+</div>
+<script>
+let mode="live";function setMode(m){mode=m;document.getElementById("m-live").classList.toggle("on",m==="live");document.getElementById("m-manual").classList.toggle("on",m==="manual");document.getElementById("liveForm").style.display=m==="live"?"flex":"none";document.getElementById("manualForm").classList.toggle("on",m==="manual")}
+function tick(){const d=new Date(),p=n=>String(n).padStart(2,"0");document.getElementById("zulu").textContent=p(d.getUTCHours())+":"+p(d.getUTCMinutes())+":"+p(d.getUTCSeconds())}setInterval(tick,1e3);tick();
+const LABELS={type:"Type",icao:"Station",issue_time:"Issue",validity:"Valid",wind:"Wind",visibility:"Visibility",cloud_layers:"Clouds",weather_phenomena:"Weather",altimeter:"Altimeter",change_groups:"Change grps"};
+async function process(){const body={mode};if(mode==="live"){body.icao=v("icao").trim().toUpperCase();body.nearby_icaos=v("nearby_live").trim();if(body.icao.length!==4)return alert("Enter a 4-letter ICAO code.")}else{body.icao=v("m_icao");body.issue_time=v("m_issue");body.validity=v("m_valid");body.wind_dir=v("m_wdir");body.wind_speed=v("m_wspd");body.wind_gust=v("m_wgst");body.visibility=v("m_vis");body.cloud_layers=v("m_cld");body.weather_phenomena=v("m_wx");body.altimeter=v("m_alt");body.nearby_icaos=v("nearby_manual")}
+setBusy(true);try{const r=await fetch("/api/process",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}),j=await r.json();if(!j.ok)return alert(j.error||"Processing failed.");render(j);loadLogs()}catch(e){alert("Request failed: "+e)}finally{setBusy(false)}}
+const v=id=>document.getElementById(id).value;function setBusy(b){document.getElementById("goLive").disabled=b}
+function render(j){const out=document.getElementById("out");out.style.display="block";document.getElementById("raw").textContent=j.parsed.raw_text||"—";const badge=document.getElementById("badge");badge.textContent=j.qc.status;badge.className="badge b-"+j.qc.status;document.getElementById("score").textContent=j.qc.score;const fill=document.getElementById("fill"),col="PASS"===j.qc.status?getCss("--pass"):"REVIEW"===j.qc.status?getCss("--review"):getCss("--fail");fill.style.background=col;fill.style.width=j.qc.score+"%";const g=document.getElementById("groups");g.innerHTML="";Object.keys(LABELS).forEach(k=>{const val=j.parsed[k];g.insertAdjacentHTML("beforeend",`<div class="cell"><div class="k">${LABELS[k]}</div><div class="v ${val?"":"none"}">${val?esc(val):"—"}</div></div>`)});const fw=document.getElementById("findwrap");fw.innerHTML=j.qc.findings.length?'<div class="findings">'+j.qc.findings.map(f=>`<div class="find ${f.severity}"><span class="sev">${f.severity.toUpperCase()}</span> <span>${esc(f.message)}</span></div>`).join("")+"</div>":'<div class="clean">✓ No discrepancies — all checked groups compliant.</div>';out.scrollIntoView({behavior:"smooth",block:"nearest"})}
+async function loadLogs(){const box=document.getElementById("logbox");try{const j=await(await fetch("/api/logs")).json();if(!j.logs.length)return void(box.innerHTML='<div class="empty">No forecasts logged yet.</div>');let h='<table><thead><tr><th>ID</th><th>Station</th><th>Issue</th><th class="hide">Wind</th><th class="hide">Vis</th><th>Score</th><th>Status</th><th class="hide">Source</th><th class="hide">Logged (Z)</th></tr></thead><tbody>';j.logs.forEach(r=>{h+=`<tr><td>${r.id}</td><td>${esc(r.icao||"—")}</td><td>${esc(r.issue_time||"—")}</td><td class="hide">${esc(r.wind||"—")}</td><td class="hide">${esc(r.visibility||"—")}</td><td>${r.qc_score}</td><td><span class="pill ${r.qc_status}">${r.qc_status}</span></td><td class="hide src">${esc(r.source||"")}</td><td class="hide src">${esc(r.logged_at||"")}</td></tr>`});box.innerHTML=h+"</tbody></table>"}catch(e){box.innerHTML='<div class="empty">Could not load logs.</div>'}}
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])),getCss=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();loadLogs();
+</script>
+</body>
+</html>
+"""
+
+# The launch code remains the same...
+if __name__ == "__main__":
+    init_db()
+    upgrade_db() # IMPORTANT: Call the upgrade function on startup
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
+
 
 # Note: The raw HTML from your PAGE variable goes here.
 # (Make sure the javascript `fetch` targets remain relative, like "/api/process", which they already are!)
