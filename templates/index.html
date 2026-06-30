@@ -76,9 +76,23 @@
                     body: JSON.stringify({ icao: icao, manual_text: txt })
                 });
                 
-                const d = await response.json();
+                // First, check if the response is OK before trying to parse JSON
+                if(!response.ok) { 
+                    // If it's a 502/503 from Render waking up, it returns HTML
+                    const contentType = response.headers.get("content-type");
+                    if (contentType && contentType.indexOf("text/html") !== -1) {
+                        log("Server is waking up from sleep. Please wait 5-10 seconds and try again.");
+                        alert("Server waking up (Render Free Tier). Please try again in a few seconds.");
+                        return;
+                    }
+                    // Otherwise, try to read the JSON error message
+                    const errData = await response.json();
+                    log("Server error: " + (errData.error || "Unknown")); 
+                    alert(errData.error || "Unknown Server Error"); 
+                    return; 
+                }
                 
-                if(!response.ok) { log("Server error: " + (d.error || "Unknown")); alert(d.error); return; }
+                const d = await response.json();
                 
                 document.getElementById('k-stat').innerHTML = `<span class="status-badge status-${d.status}">${d.status}</span>`;
                 document.getElementById('k-score').innerText = d.score;
