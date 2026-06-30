@@ -1,126 +1,138 @@
-import os
+# @title ✈️ TAF QC Console - AFMAN 15-124 Compliance {display-mode: "form"}
 import re
-import sqlite3
 import json
 import requests
-import pandas as pd
-from flask import Flask, request, jsonify, render_template, send_file
-from io import BytesIO
+from google.colab import output
+from IPython.display import HTML
 
-app = Flask(__name__)
-DB_PATH = "taf_validation.db"
-
-# --- Initialization & Database ---
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS taf_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            icao TEXT, status TEXT, score INTEGER, findings TEXT, raw_taf TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# --- AFMAN 15-124 QC ENGINE ---
-WX_DESCRIPTOR = "MI|PR|BC|DR|BL|SH|TS|FZ"
-WX_PRECIP = "DZ|RA|SN|SG|IC|PL|GR|GS|UP"
-WX_OBSCURE = "BR|FG|FU|VA|DU|SA|HZ|PY"
-WX_OTHER = "PO|SQ|FC|SS|DS"
-RE_TAF_HEAD = re.compile(r"^TAF(?:\s+(AMD|COR))?\b")
-RE_ICAO = re.compile(r"^[A-Z][A-Z0-9]{3}$")
-RE_WX_HASPHEN = re.compile(rf"(?:{WX_DESCRIPTOR}|{WX_PRECIP}|{WX_OBSCURE}|{WX_OTHER})")
-RE_WX_STRICT = re.compile(rf"^(VC|[+-])?(?:{WX_DESCRIPTOR})?(?:{WX_PRECIP}){{0,3}}(?:{WX_OBSCURE})?(?:{WX_OTHER})?$")
-
-def qc_taf(raw):
+# --- QC ENGINE LOGIC (Python Port for API usage) ---
+def qc_engine_logic(raw_text):
     findings = []
     score = 100
-    text = " ".join(raw.upper().split())
-    tokens = text.split()
-    
-    if not tokens: return "FAIL", 0, ["Empty input."]
-    
-    if not RE_TAF_HEAD.match(text): 
-        findings.append("Message must begin with TAF.")
+    raw = " ".join(raw_text.upper().split())
+
+    # Validation Rules
+    if not re.search(r'\b[A-Z0-9]{4}\b', raw):
+        findings.append({"sev": "critical", "ref": "1.3.2.1.3", "msg": "Missing or malformed 4-letter ICAO identifier."})
+        score -= 20
+    if not re.search(r'\b\d{6}Z\b', raw):
+        findings.append({"sev": "critical", "ref": "1.3.2.1.4", "msg": "Missing or malformed issue date/time (DDHHMMZ)."})
         score -= 15
-        
-    for t in tokens:
-        if RE_WX_HASPHEN.search(t) and not RE_WX_STRICT.match(t):
-            findings.append(f"Malformed WX group: {t}")
-            score -= 5
-            
+    if not re.search(r'\b\d{4}/\d{4}\b', raw):
+        findings.append({"sev": "critical", "ref": "1.3.2.1.5", "msg": "Missing or malformed valid period (DDHH/DDHH)."})
+        score -= 15
+    if not re.search(r'\b(VRB|\d{3})\d{2,3}(G\d{2,3})?KT\b', raw):
+        findings.append({"sev": "critical", "ref": "1.3.4", "msg": "Missing mandatory wind group."})
+        score -= 20
+    if "QNH" not in raw and "INS" not in raw:
+        findings.append({"sev": "warning", "ref": "1.3.12", "msg": "No QNH altimeter found (Standard for AF TAFs)."})
+        score -= 5
+
     status = "PASS" if score >= 90 else ("REVIEW" if score >= 70 else "FAIL")
-    return status, max(0, score), findings
+    return {"status": status, "score": max(0, score), "findings": findings, "raw": raw}
 
-# --- API Routes ---
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/api/validate', methods=['POST'])
-def validate_taf():
-    data = request.json
-    icao = data.get('icao', '').strip().upper()
-    raw = data.get('manual_text', '').strip()
-    
+def process_taf_proxy(icao, manual_text=None):
     try:
-        if not raw and icao:
-            res = requests.get(f"https://aviationweather.gov/api/data/taf?ids={icao}", timeout=10)
-            res.raise_for_status()
-            raw = res.text.strip()
-            
+        if manual_text:
+            raw = manual_text
+        else:
+            resp = requests.get(f"https://aviationweather.gov/api/data/taf?ids={icao}&format=raw", timeout=10)
+            raw = resp.text.strip() if resp.ok else ""
+
         if not raw:
-            return jsonify({"error": "No TAF data returned from API or empty input."}), 400
-            
-        status, score, findings = qc_taf(raw)
-        
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("INSERT INTO taf_logs (icao, status, score, findings, raw_taf) VALUES (?,?,?,?,?)",
-                     (icao if icao else "MANUAL", status, score, json.dumps(findings), raw))
-        conn.commit()
-        conn.close()
-        
-        return jsonify({
-            "icao": icao if icao else "MANUAL", 
-            "status": status, 
-            "score": score,
-            "findings": findings, 
-            "raw": raw
-        })
+            return json.dumps({"error": "No TAF data found."})
+
+        result = qc_engine_logic(raw)
+        return json.dumps(result)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return json.dumps({"error": str(e)})
 
-@app.route('/api/history', methods=['GET'])
-def get_history():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query("SELECT icao, score, status FROM taf_logs ORDER BY id DESC LIMIT 10", conn)
-        conn.close()
-        return jsonify(df.to_dict(orient='records'))
-    except:
-        return jsonify([])
+output.register_callback('process_taf_proxy', process_taf_proxy)
 
-@app.route('/api/export', methods=['GET'])
-def export_csv():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query("SELECT * FROM taf_logs", conn)
-        conn.close()
-        
-        csv_data = df.to_csv(index=False).encode('utf-8')
-        return send_file(
-            BytesIO(csv_data),
-            mimetype='text/csv',
-            as_attachment=True,
-            download_name='taf_qc_history.csv'
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# --- DASHBOARD UI ---
+HTML_UI = r"""
+<!DOCTYPE html>
+<html>
+<head>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #0b1220; --panel: #111c2e; --line: #22324a; --ink: #e6edf6; --muted: #8090a8; --cyan: #56b4e0; --pass: #3ddc84; --fail: #ff5d5d; }
+        body { background: var(--bg); color: var(--ink); font-family: 'Inter', sans-serif; padding: 20px; }
+        .card { background: var(--panel); border: 1px solid var(--line); padding: 20px; border-radius: 12px; max-width: 900px; margin: auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 15px; margin-bottom: 20px; }
+        h2 { margin: 0; font-size: 18px; letter-spacing: 1px; color: var(--cyan); }
+        .input-group { display: flex; gap: 10px; margin-bottom: 20px; }
+        input, textarea { background: #070d18; border: 1px solid var(--line); color: white; padding: 12px; border-radius: 8px; width: 100%; font-family: 'JetBrains Mono', monospace; }
+        button { background: var(--cyan); color: #0b1220; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        #output { display: none; margin-top: 20px; }
+        .raw-box { background: #070d18; padding: 15px; border-radius: 8px; border-left: 4px solid var(--cyan); font-family: 'JetBrains Mono', monospace; margin-bottom: 20px; }
+        .verdict { display: flex; align-items: center; gap: 20px; background: rgba(255,255,255,0.03); padding: 15px; border-radius: 8px; }
+        .badge { padding: 5px 15px; border-radius: 5px; font-weight: bold; text-transform: uppercase; }
+        .status-PASS { background: rgba(61,220,132,0.2); color: var(--pass); }
+        .status-FAIL { background: rgba(255,93,93,0.2); color: var(--fail); }
+        .finding { padding: 10px; border-bottom: 1px solid var(--line); font-size: 13px; display: flex; gap: 10px; }
+        .sev-critical { color: var(--fail); font-weight: bold; }
+        .ref { color: var(--muted); font-family: 'JetBrains Mono', monospace; min-width: 80px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <h2>✈️ TAF QC CONSOLE</h2>
+            <span style="color: var(--muted); font-size: 12px;">AFMAN 15-124 Compliance Checker</span>
+        </div>
 
-if __name__ == '__main__':
-    # Render requires binding to 0.0.0.0 and dynamically pulling the PORT
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+        <div class="input-group">
+            <input id="icao" placeholder="ICAO (e.g. KLSV)" style="width: 150px;" maxlength="4">
+            <button onclick="run('live')">Fetch Live</button>
+        </div>
+        <textarea id="manual" placeholder="Or paste raw TAF here..." rows="3"></textarea>
+        <button onclick="run('manual')" style="margin-top:10px; width: 100%; background: #22324a; color: white;">Validate Manual Text</button>
+
+        <div id="output">
+            <div class="raw-box" id="raw-disp"></div>
+            <div class="verdict">
+                <div id="badge-disp" class="badge"></div>
+                <div style="font-size: 24px;">Score: <b id="score-disp"></b></div>
+            </div>
+            <div id="findings-disp" style="margin-top: 20px;"></div>
+        </div>
+    </div>
+
+    <script>
+        async function run(mode) {
+            const icao = document.getElementById('icao').value.toUpperCase();
+            const text = mode === 'manual' ? document.getElementById('manual').value : null;
+
+            const outBox = document.getElementById('output');
+            outBox.style.display = 'block';
+            document.getElementById('raw-disp').innerText = "Processing...";
+
+            google.colab.kernel.invokeFunction('process_taf_proxy', [icao, text], {}).then(obj => {
+                const data = JSON.parse(obj.data['application/json']);
+                if (data.error) {
+                    document.getElementById('raw-disp').innerText = "Error: " + data.error;
+                    return;
+                }
+
+                document.getElementById('raw-disp').innerText = data.raw;
+                document.getElementById('badge-disp').innerText = data.status;
+                document.getElementById('badge-disp').className = 'badge status-' + (data.status === 'PASS' ? 'PASS' : 'FAIL');
+                document.getElementById('score-disp').innerText = data.score + "/100";
+
+                let html = '<h3>Discrepancies</h3>';
+                if (data.findings.length === 0) {
+                    html += '<p style="color:var(--pass)">✓ No discrepancies found.</p>';
+                } else {
+                    data.findings.forEach(f => {
+                        html += `<div class="finding"><span class="sev-${f.sev}">${f.sev.toUpperCase()}</span><span class="ref">${f.ref}</span><span>${f.msg}</span></div>`;
+                    });
+                }
+                document.getElementById('findings-disp').innerHTML = html;
+            });
+        }
+    </script>
+</body>
+</html>
+"""
+HTML(HTML_UI)
