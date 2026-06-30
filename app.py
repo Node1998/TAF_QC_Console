@@ -3,16 +3,15 @@ import re
 import sqlite3
 import json
 import requests
-import pandas as pd
+import csv
 from flask import Flask, request, jsonify, render_template, send_file
-from io import BytesIO
+from io import BytesIO, StringIO
 
 app = Flask(__name__)
 DB_PATH = "taf_validation.db"
 
 # --- Initialization & Database ---
 def init_db():
-    # SQLite can handle concurrent connection attempts to create tables
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS taf_logs (
@@ -24,7 +23,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Run initialization when the module loads (Gunicorn will trigger this)
 init_db()
 
 # --- AFMAN 15-124 QC ENGINE ---
@@ -32,7 +30,6 @@ WX_DESCRIPTOR = "MI|PR|BC|DR|BL|SH|TS|FZ"
 WX_PRECIP = "DZ|RA|SN|SG|IC|PL|GR|GS|UP"
 WX_OBSCURE = "BR|FG|FU|VA|DU|SA|HZ|PY"
 WX_OTHER = "PO|SQ|FC|SS|DS"
-
 RE_TAF_HEAD = re.compile(r"^TAF(?:\s+(AMD|COR))?\b")
 RE_ICAO = re.compile(r"^[A-Z][A-Z0-9]{3}$")
 RE_WX_HASPHEN = re.compile(rf"(?:{WX_DESCRIPTOR}|{WX_PRECIP}|{WX_OBSCURE}|{WX_OTHER})")
@@ -100,21 +97,33 @@ def validate_taf():
 def get_history():
     try:
         conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query("SELECT icao, score, status FROM taf_logs ORDER BY id DESC LIMIT 10", conn)
+        conn.row_factory = sqlite3.Row  # Returns rows as dictionaries
+        rows = conn.execute("SELECT icao, score, status FROM taf_logs ORDER BY id DESC LIMIT 10").fetchall()
         conn.close()
-        return jsonify(df.to_dict(orient='records'))
+        return jsonify([dict(r) for r in rows])
     except Exception as e:
-        print(f"History Error: {e}")
         return jsonify([])
 
 @app.route('/api/export', methods=['GET'])
 def export_csv():
     try:
         conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query("SELECT * FROM taf_logs", conn)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM taf_logs").fetchall()
         conn.close()
         
-        csv_data = df.to_csv(index=False).encode('utf-8')
+        # Build CSV in memory
+        buf = StringIO()
+        if rows:
+            writer = csv.DictWriter(buf, fieldnames=rows[0].keys())
+            writer.writeheader()
+            for r in rows:
+                writer.writerow(dict(r))
+        else:
+            buf.write("no records\n")
+            
+        csv_data = buf.getvalue().encode('utf-8')
+        
         return send_file(
             BytesIO(csv_data),
             mimetype='text/csv',
@@ -124,7 +133,6 @@ def export_csv():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# This is only used if you run it locally (e.g., python app.py)
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port)
