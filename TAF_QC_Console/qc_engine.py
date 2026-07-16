@@ -106,7 +106,7 @@ def qc_taf(raw):
                 "findings": [{"severity": "critical", "ref": "-",
                               "message": "Empty input.", "penalty": 100,
                               "token": None, "span": None}],
-                "groups": {}, "text": ""}
+                "groups": {}, "text": "", "raw_formatted": ""}
 
     groups = {"type": None, "icao": None, "issue": None, "valid": None,
               "wind": None, "visibility": None, "weather": None,
@@ -405,5 +405,9 @@ def qc_taf(raw):
         status = "REVIEW"
     else:
         status = "PASS"
+    
+    # Preserve original formatting if newlines present, otherwise normalized text
+    raw_formatted = raw if has_newlines else text
+    
     return {"status": status, "score": score, "findings": findings,
-            "groups": groups, "text": text}
+            "groups": groups, "text": text, "raw_formatted": raw_formatted}
