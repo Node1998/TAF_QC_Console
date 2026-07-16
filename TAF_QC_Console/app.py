@@ -28,6 +28,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
 from qc_engine import qc_taf
+from taf_formatter import format_taf, format_taf_display, validate_formatting
 
 # =========================================================================== #
 #  Configuration & Constants
@@ -501,6 +502,37 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/format", methods=["POST"])
+def api_format():
+    """Format a raw TAF with proper indentation and structure."""
+    try:
+        p = request.get_json(force=True, silent=True) or {}
+    except Exception as e:
+        logger.warning(f"Invalid JSON in /api/format: {e}")
+        return jsonify({"ok": False, "error": "Invalid JSON payload"}), 400
+    
+    raw = (p.get("raw") or "").strip()
+    if not raw:
+        return jsonify({"ok": False, "error": "No TAF text provided."})
+    
+    try:
+        formatted = format_taf(raw)
+        display = format_taf_display(raw)
+        validation = validate_formatting(raw)
+        
+        logger.info("Formatted TAF successfully")
+        return jsonify({
+            "ok": True,
+            "raw": raw,
+            "formatted": formatted,
+            "display": display,
+            "validation": validation
+        })
+    except Exception as e:
+        logger.error(f"Error formatting TAF: {e}")
+        return jsonify({"ok": False, "error": f"Formatting error: {str(e)}"}), 400
+
+
 @app.route("/api/process", methods=["POST"])
 def api_process():
     try:
@@ -525,16 +557,19 @@ def api_process():
             return jsonify({"ok": False, "error": "Paste a TAF to validate."})
         source = "MANUAL"
 
+    # Format the TAF
+    formatted_raw = format_taf(raw)
+    
     qc = qc_taf(raw)
     g = qc["groups"]
     icao = icao or g.get("icao") or ""
-    rid = insert_log(g, qc, source, raw)
+    rid = insert_log(g, qc, source, formatted_raw)
 
     neighbors, board = ([], [])
     if p.get("consensus") and _validate_icao(icao):
         neighbors, board = regional_consensus(icao, raw)
 
-    return jsonify({"ok": True, "id": rid, "source": source, "raw": raw,
+    return jsonify({"ok": True, "id": rid, "source": source, "raw": formatted_raw,
                     "qc": qc, "neighbors": neighbors, "leaderboard": board})
 
 
@@ -579,9 +614,12 @@ def api_upload():
     
     results = []
     for raw in tafs:
+        # Format the TAF
+        formatted_raw = format_taf(raw)
+        
         qc = qc_taf(raw)
-        rid = insert_log(qc["groups"], qc, "UPLOAD", raw)
-        results.append({"id": rid, "raw": raw, "qc": qc})
+        rid = insert_log(qc["groups"], qc, "UPLOAD", formatted_raw)
+        results.append({"id": rid, "raw": formatted_raw, "qc": qc})
     
     logger.info(f"Processed {len(results)} TAFs from upload")
     return jsonify({"ok": True, "count": len(results), "results": results})
