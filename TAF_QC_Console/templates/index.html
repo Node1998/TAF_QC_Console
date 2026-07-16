@@ -58,4 +58,357 @@
   textarea{resize:vertical;min-height:96px;line-height:1.5}
   .row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:14px}
   .icao-box{flex:0 0 160px}
-  .mode-pane{display:none}.mode-pane.on{display:bl
+  .mode-pane{display:none}.mode-pane.on{display:block}
+  .filehint{font-size:13px;color:var(--muted);margin-top:10px}
+  .consent{display:flex;align-items:center;gap:8px;margin-top:16px;font-size:14px;color:var(--muted)}
+  /* ---- result -------------------------------------------------------- */
+  #result{display:none}
+  .scoreline{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:6px}
+  .scoreline .big{font-size:clamp(34px,5vw,48px);font-weight:600;letter-spacing:-.015em}
+  .scoreline .status{font-size:21px;font-weight:600}
+  .status.PASS{color:var(--pass)}.status.REVIEW{color:var(--review)}.status.FAIL{color:var(--fail)}
+  .sub{color:var(--muted);font-size:15px;margin-bottom:18px}
+  .tafbox{background:#fff;border:1px solid var(--hair);border-radius:12px;padding:18px 20px;
+    font-family:var(--mono);font-size:15px;line-height:2.1;word-break:break-word;white-space:pre-wrap;overflow-x:auto}
+  mark{border-radius:6px;padding:2px 5px;cursor:pointer;position:relative;background:transparent}
+  mark.critical{background:var(--crit-bg);box-shadow:inset 0 -2px 0 var(--crit)}
+  mark.error{background:var(--err-bg);box-shadow:inset 0 -2px 0 var(--err)}
+  mark.warning{background:var(--warn-bg);box-shadow:inset 0 -2px 0 var(--warn)}
+  mark .tip{display:none;position:absolute;left:50%;transform:translateX(-50%);bottom:calc(100% + 8px);
+    background:var(--ink);color:#fff;font-family:var(--sans);font-size:12.5px;line-height:1.4;
+    padding:8px 12px;border-radius:10px;white-space:normal;width:max-content;max-width:320px;z-index:9}
+  mark:hover .tip{display:block}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,113,227,.5)}100%{box-shadow:0 0 0 12px rgba(0,113,227,0)}}
+  mark.flash{animation:pulse .9s ease-out 2}
+  .findings{margin-top:18px;display:flex;flex-direction:column;gap:8px}
+  .find{display:flex;gap:14px;align-items:baseline;background:#fff;border:1px solid var(--hair);
+    border-radius:12px;padding:12px 16px;cursor:pointer;transition:box-shadow .18s;font-size:15px}
+  .find:hover{box-shadow:0 2px 8px rgba(0,0,0,.07)}
+  .find .pts{font-family:var(--mono);font-weight:600;min-width:38px}
+  .find.critical .pts{color:var(--crit)}.find.error .pts{color:var(--err)}.find.warning .pts{color:var(--warn)}
+  .find .ref{font-family:var(--mono);font-size:12.5px;color:var(--muted);min-width:104px}
+  .clean{color:var(--pass);font-size:15px;margin-top:16px}
+  /* upload batch list */
+  .batch{margin-top:16px;display:none}
+  .batch .b-row{display:flex;gap:14px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--hair);
+    font-size:14px;cursor:pointer;border-radius:8px}
+  .batch .b-row:hover{background:var(--panel)}
+  .batch .b-row.sel{background:#eaf3fe}
+  .b-icao{font-family:var(--mono);min-width:64px}
+  .b-score{font-family:var(--mono);min-width:44px;text-align:right}
+  /* ---- log ----------------------------------------------------------- */
+  .loghead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .loghead h2{margin:0;flex:1 1 auto}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;font-size:12px;font-weight:500;color:var(--muted);padding:8px 12px;border-bottom:1px solid var(--hair)}
+  td{padding:10px 12px;border-bottom:1px solid #e8e8ed;font-family:var(--mono);font-size:13.5px}
+  tr:hover td{background:#fafafa}
+  .tag{font-family:var(--sans);font-size:12px;font-weight:600;padding:3px 10px;border-radius:var(--r-pill)}
+  .tag.PASS{color:var(--pass);background:#e2f6e8}.tag.REVIEW{color:var(--review);background:#ffefdb}.tag.FAIL{color:var(--fail);background:#ffe5e5}
+  .empty{color:var(--muted);font-size:14px;padding:14px 4px}
+  /* ---- reference modal ----------------------------------------------- */
+  .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:40;
+    align-items:flex-start;justify-content:center;padding:6vh 20px;overflow-y:auto}
+  .overlay.on{display:flex}
+  .modal{background:#fff;border-radius:var(--r-card);max-width:720px;width:100%;padding:34px 38px;position:relative}
+  .modal h3{font-size:28px;font-weight:600;letter-spacing:-.01em;margin-bottom:4px}
+  .modal .src{color:var(--muted);font-size:14px;margin-bottom:20px}
+  .modal h4{font-size:16px;font-weight:600;margin:20px 0 8px}
+  .modal p,.modal li{font-size:14.5px;color:#3a3a3c}
+  .modal ul{padding-left:20px;display:flex;flex-direction:column;gap:5px}
+  .modal code{font-family:var(--mono);font-size:13px;background:var(--panel);border-radius:6px;padding:2px 6px}
+  .fmt{font-family:var(--mono);font-size:12.5px;line-height:1.8;background:var(--panel);border-radius:12px;padding:14px 16px;word-break:break-word}
+  .x{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;border:none;
+    background:var(--panel);color:var(--muted);font-size:16px;cursor:pointer}
+  .x:hover{background:#e8e8ed;color:var(--ink)}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}html{scroll-behavior:auto}}
+  @media(max-width:640px){.nav-in{gap:16px}.zulu{display:none}.card{padding:20px}.icao-box{flex:1 1 100%}
+    th.hide,td.hide{display:none}.modal{padding:24px 20px}}
+</style>
+</head>
+<body>
+
+<nav><div class="nav-in">
+  <b>TAF QC</b>
+  <a href="#ingest">Console</a>
+  <a href="#log">Log</a>
+  <a href="#" onclick="openRef(event)">Reference</a>
+  <span class="zulu" id="zulu">--:--:--Z</span>
+</div></nav>
+
+<div class="hero">
+  <h1>TAF QC.</h1>
+  <p>AFMAN 15-124 compliance, at a glance.</p>
+</div>
+
+<div class="wrap">
+  <!-- ingest ---------------------------------------------------------- -->
+  <section class="card" id="ingest">
+    <div class="seg" role="tablist">
+      <button id="m-live" class="on" onclick="setMode('live')">Live fetch</button>
+      <button id="m-manual" onclick="setMode('manual')">Paste</button>
+      <button id="m-upload" onclick="setMode('upload')">Upload</button>
+    </div>
+
+    <div id="pane-live" class="mode-pane on">
+      <div class="row">
+        <div class="icao-box"><label for="icao">Station ICAO</label>
+          <input type="text" id="icao" value="KXXX" maxlength="4" autocomplete="off"
+                 oninput="this.value=this.value.toUpperCase()"
+                 onkeydown="if(event.key==='Enter')run()"></div>
+        <button class="pill primary" id="go" onclick="run()">Process</button>
+      </div>
+    </div>
+
+    <div id="pane-manual" class="mode-pane">
+      <label for="raw">Raw TAF</label>
+      <textarea id="raw" placeholder="TAF KXXX 121500Z 1215/1315 03009KT 9999 SCT250 QNH2977INS &mldr;"></textarea>
+      <div class="row">
+        <div class="icao-box"><label for="micao">ICAO (optional)</label>
+          <input type="text" id="micao" maxlength="4" oninput="this.value=this.value.toUpperCase()"></div>
+        <button class="pill primary" onclick="run()">Validate</button>
+      </div>
+    </div>
+
+    <div id="pane-upload" class="mode-pane">
+      <input type="file" id="file" accept=".txt,.taf,text/plain" hidden onchange="fileChosen()">
+      <div class="row" style="margin-top:0">
+        <button class="pill soft" onclick="document.getElementById('file').click()">Choose file&hellip;</button>
+        <button class="pill primary" id="upgo" onclick="upload()" disabled>Upload &amp; validate</button>
+      </div>
+      <div class="filehint" id="filehint">Plain-text file, one or more TAFs (blank-line separated), up to 256&nbsp;KB.</div>
+      <div class="batch" id="batch"></div>
+    </div>
+
+    <div class="consent">
+      <input type="checkbox" id="cons">
+      <label for="cons" style="margin:0">Also run regional consensus against nearby stations</label>
+    </div>
+  </section>
+
+  <!-- result ---------------------------------------------------------- -->
+  <section class="card white" id="result">
+    <div class="scoreline">
+      <span class="big">TAF: <span id="score">--</span></span>
+      <span class="status" id="status"></span>
+    </div>
+    <div class="sub" id="summary"></div>
+    <div class="tafbox" id="tafbox"></div>
+    <div id="findwrap"></div>
+    <div id="consout"></div>
+  </section>
+
+  <!-- log -------------------------------------------------------------- -->
+  <section class="card" id="log">
+    <div class="loghead">
+      <h2>Validation log</h2>
+      <button class="pill soft" onclick="loadLogs()">Refresh</button>
+      <a class="pill soft" href="/api/export">Export CSV</a>
+      <a class="pill soft" href="/api/export/xlsx">Export Excel</a>
+    </div>
+    <div id="logbox"><div class="empty">Loading&hellip;</div></div>
+  </section>
+</div>
+
+<!-- reference popup ---------------------------------------------------- -->
+<div class="overlay" id="refov" onclick="if(event.target===this)closeRef()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reftitle">
+    <button class="x" onclick="closeRef()" aria-label="Close">&#10005;</button>
+    <h3 id="reftitle">TAF format reference</h3>
+    <div class="src">AFMAN 15-124 (16 Jan 2019), Chapter 1 &middot; unit TAF encoding guide.
+      Findings cite the governing paragraph or table.</div>
+    <h4>Message template</h4>
+    <div class="fmt">TAF (AMD|COR) CCCC YYGGggZ YYG<sub>1</sub>G<sub>1</sub>/YYG<sub>2</sub>G<sub>2</sub>
+      dddffGf<sub>m</sub>f<sub>m</sub>KT VVVV w&rsquo;w&rsquo; N<sub>s</sub>N<sub>s</sub>N<sub>s</sub>h<sub>s</sub>h<sub>s</sub>h<sub>s</sub>CC | VVh<sub>s</sub>h<sub>s</sub>h<sub>s</sub> | SKC
+      (WSh<sub>ws</sub>h<sub>ws</sub>h<sub>ws</sub>/dddffKT) (6I<sub>c</sub>h<sub>i</sub>h<sub>i</sub>h<sub>i</sub>t<sub>L</sub>) (5Bh<sub>B</sub>h<sub>B</sub>h<sub>B</sub>t<sub>L</sub>)
+      QNHP<sub>1</sub>P<sub>1</sub>P<sub>1</sub>P<sub>1</sub>INS (RMKS) &middot; FM|BECMG|TEMPO lines &middot; TX/TN groups</div>
+    <h4>What the engine checks</h4>
+    <ul>
+      <li><b>Header</b> &mdash; one AMD/COR modifier max (1.3.2.1.2), ICAO (1.3.2.1.3), issue time DDHHMMZ (1.3.2.1.4), valid period 24/30&nbsp;h (1.3.2.1.5).</li>
+      <li><b>Wind</b> &mdash; direction to 10&deg;, calm = <code>00000KT</code>, VRB only &le;6&nbsp;KT (1.3.4.1), gust criteria (1.3.4.2.2).</li>
+      <li><b>Visibility</b> &mdash; Table 1.1 reportable meters; w&rsquo;w&rsquo; required when &lt;9999 (1.3.5).</li>
+      <li><b>Weather</b> &mdash; Table 1.2 column order, max three groups (1.3.6.2), VC pairing without intensity (1.3.6.4).</li>
+      <li><b>Sky</b> &mdash; ascending bases, summation principle (1.3.7.1), Table 1.3 height increments, CB required with TS (1.3.7.8).</li>
+      <li><b>Altimeter</b> &mdash; <code>QNH&hellip;INS</code> on INIT/FM/BECMG lines; never in TEMPO (1.3.12).</li>
+      <li><b>LLWS</b> &mdash; WS group prohibited in BECMG/TEMPO (1.3.9.2.2).</li>
+      <li><b>Change lines</b> &mdash; BECMG &le;2&nbsp;h (1.3.3.1); TEMPO &le;6&nbsp;h and &le;2 consecutive BECMG/TEMPO (encoding guide).</li>
+      <li><b>Temperature</b> &mdash; TX before TN, <code>M</code> prefix below zero (1.3.13.1).</li>
+    </ul>
+    <h4>Scoring</h4>
+    <p>Every TAF starts at 100. Each discrepancy subtracts its severity-weighted penalty
+      (shown as <code>&minus;n</code> beside the finding). Any critical finding or a score
+      below 70 &rarr; <b>FAIL</b>; any error or a score below 90 &rarr; <b>REVIEW</b>;
+      otherwise <b>PASS</b>. Highlighted tokens in the forecast show exactly where each
+      penalty was taken.</p>
+  </div>
+</div>
+
+<script>
+  const $=id=>document.getElementById(id);
+  const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  let mode="live", batchResults=[];
+
+  function setMode(m){mode=m;
+    ["live","manual","upload"].forEach(k=>{
+      $("m-"+k).classList.toggle("on",k===m);
+      $("pane-"+k).classList.toggle("on",k===m);});}
+      
+  function tick(){const d=new Date(),p=n=>String(n).padStart(2,"0");
+    $("zulu").textContent=p(d.getUTCHours())+":"+p(d.getUTCMinutes())+":"+p(d.getUTCSeconds())+"Z";}
+  setInterval(tick,1000);tick();
+
+  /* ---- process (live / manual) ---- */
+  async function run(){
+    const body={mode,consensus:$("cons").checked};
+    if(mode==="live"){body.icao=$("icao").value.trim().toUpperCase();
+      if(body.icao.length!==4){alert("Enter a 4-letter ICAO.");return;}}
+    else{body.raw=$("raw").value.trim();body.icao=$("micao").value.trim().toUpperCase();
+      if(!body.raw){alert("Paste a TAF first.");return;}}
+    $("go").disabled=true;
+    try{
+      const r=await fetch("/api/process",{method:"POST",
+        headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const j=await r.json();
+      if(!j.ok){alert(j.error||"Failed.");return;}
+      render(j.qc,j);loadLogs();
+    }catch(e){alert("Request failed: "+e);}
+    finally{$("go").disabled=false;}
+  }
+
+  /* ---- upload ---- */
+  function fileChosen(){const f=$("file").files[0];
+    $("upgo").disabled=!f;
+    $("filehint").textContent=f?f.name+" — ready.":"Plain-text file, one or more TAFs (blank-line separated), up to 256 KB.";}
+    
+  async function upload(){
+    const f=$("file").files[0];if(!f)return;
+    $("upgo").disabled=true;
+    try{
+      const fd=new FormData();fd.append("file",f);
+      const j=await(await fetch("/api/upload",{method:"POST",body:fd})).json();
+      if(!j.ok){alert(j.error||"Upload failed.");return;}
+      batchResults=j.results;
+      const b=$("batch");b.style.display="block";
+      b.innerHTML=j.results.map((r,i)=>{const g=r.qc.groups||{};
+        return `<div class="b-row" data-i="${i}" onclick="pick(${i})">
+          <span class="b-icao">${esc(g.icao||"—")}</span>
+          <span style="flex:1;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.raw.slice(0,80))}</span>
+          <span class="b-score">${r.qc.score}</span>
+          <span class="tag ${r.qc.status}">${r.qc.status}</span></div>`;}).join("");
+      pick(0);loadLogs();
+    }catch(e){alert("Upload failed: "+e);}
+    finally{$("upgo").disabled=false;}
+  }
+
+  function pick(i){
+    document.querySelectorAll(".b-row").forEach(el=>el.classList.toggle("sel",+el.dataset.i===i));
+    render(batchResults[i].qc,{});}
+
+  /* ---- apply TAF formatting with indents ---- */
+  function formatTafDisplay(html){
+    // Flatten the string to single spaces to avoid weird existing line breaks
+    let out = html.replace(/[ \t]+/g, ' ');
+    
+    // Break onto a new line AND indent whenever a change group indicator is found.
+    // This regex looks for a space, an optional <mark> tag, and then the change group word.
+    // It captures the optional mark tag ($1) and the change word ($2), replacing the space with \n and two spaces.
+    out = out.replace(/ (<mark[^>]*>)?(FM\d{4,6}|BECMG|TEMPO|PROB30|PROB40)\b/g, '\n  $1$2');
+    
+    return out.trim();
+  }
+
+  /* ---- render one QC result with span highlighting ---- */
+  function render(qc,extra){
+    $("result").style.display="block";
+    $("score").textContent=qc.score;
+    const st=$("status");st.textContent=qc.status;st.className="status "+qc.status;
+    const worst=qc.findings.length
+      ? `${qc.findings.length} finding${qc.findings.length>1?"s":""}, ${qc.findings.reduce((a,f)=>a+f.penalty,0)} points deducted`
+      : "No deductions";
+    $("summary").textContent=worst+" · hover a highlight or select a finding to locate it.";
+
+    /* build highlighted TAF from normalized text + spans with formatting */
+    const text=qc.text||"";
+    
+    const marks=qc.findings.map((f,i)=>({...f,i})).filter(f=>f.span);
+    const bySpan=new Map();
+    marks.forEach(f=>{const k=f.span[0]+":"+f.span[1];
+      (bySpan.get(k)||bySpan.set(k,[]).get(k)).push(f);});
+    const spans=[...bySpan.values()].sort((a,b)=>a[0].span[0]-b[0].span[0]);
+    const sevRank={critical:3,error:2,warning:1};
+    
+    let html="",pos=0;
+    spans.forEach(group=>{
+      const [s,e]=group[0].span;
+      if(s<pos)return;
+      const sev=group.reduce((m,f)=>sevRank[f.severity]>sevRank[m]?f.severity:m,"warning");
+      const tip=group.map(f=>`−${f.penalty} · ${esc(f.ref)} · ${esc(f.message)}`).join("<br>");
+      html+=esc(text.slice(pos,s))+
+        `<mark class="${sev}" id="mk${group[0].i}" data-ids="${group.map(f=>f.i).join(",")}">`+
+        esc(text.slice(s,e))+`<span class="tip">${tip}</span></mark>`;
+      pos=e;});
+    html+=esc(text.slice(pos));
+    
+    // Apply formatting directly to the highlighted HTML
+    const formattedHtml = formatTafDisplay(html);
+    $("tafbox").innerHTML = formattedHtml || "—";
+
+    /* findings list: "−8 · 1.3.4.2.2 · message" */
+    const fw=$("findwrap");
+    if(!qc.findings.length){
+      fw.innerHTML='<div class="clean">✓ No discrepancies — compliant with all checked AFMAN 15-124 rules.</div>';
+    }else{
+      fw.innerHTML='<div class="findings">'+qc.findings.map((f,i)=>
+        `<div class="find ${f.severity}" onclick="locate(${i})">
+           <span class="pts">−${f.penalty}</span>
+           <span class="ref">${esc(f.ref)}</span>
+           <span>${esc(f.message)}${f.span?"":" <i style='color:var(--muted)'>(group absent — nothing to highlight)</i>"}</span>
+         </div>`).join("")+"</div>";
+    }
+
+    /* regional consensus (live/manual only) */
+    const co=$("consout");co.innerHTML="";
+    if(extra.leaderboard&&extra.leaderboard.length){
+      co.innerHTML='<h2 style="margin:22px 0 10px;font-size:19px">Regional consensus</h2>'+
+        extra.leaderboard.map(l=>`<div style="display:flex;gap:14px;padding:7px 4px;
+          border-bottom:1px solid var(--hair);font-family:var(--mono);font-size:14px">
+          <span style="color:var(--muted);width:30px">#${l.rank}</span>
+          <span style="flex:1">${esc(l.icao)}</span><span>${l.score}%</span></div>`).join("");
+    }
+    $("result").scrollIntoView({behavior:"smooth",block:"nearest"});
+  }
+
+  function locate(i){
+    const mk=document.querySelector(`mark[data-ids~="${i}"], #mk${i}`)||
+             [...document.querySelectorAll("mark")].find(m=>(m.dataset.ids||"").split(",").includes(String(i)));
+    if(!mk)return;
+    mk.scrollIntoView({behavior:"smooth",block:"center"});
+    mk.classList.remove("flash");void mk.offsetWidth;mk.classList.add("flash");
+  }
+
+  /* ---- log ---- */
+  async function loadLogs(){
+    const box=$("logbox");
+    try{
+      const j=await(await fetch("/api/logs")).json();
+      if(!j.logs.length){box.innerHTML='<div class="empty">No forecasts logged yet.</div>';return;}
+      let h='<table><thead><tr><th>ID</th><th>Station</th><th>Issue</th><th class="hide">Wind</th><th class="hide">Vis</th><th>Score</th><th>Status</th><th class="hide">Source</th><th class="hide">Logged</th></tr></thead><tbody>';
+      j.logs.forEach(r=>{h+=`<tr><td>${r.id}</td><td>${esc(r.icao||"—")}</td><td>${esc(r.issue_time||"—")}</td>
+        <td class="hide">${esc(r.wind||"—")}</td><td class="hide">${esc(r.visibility||"—")}</td>
+        <td>${r.qc_score}</td><td><span class="tag ${esc(r.qc_status)}">${esc(r.qc_status)}</span></td>
+        <td class="hide" style="color:var(--muted)">${esc(r.source||"")}</td>
+        <td class="hide" style="color:var(--muted)">${esc(r.logged_at||"")}</td></tr>`;});
+      box.innerHTML=h+"</tbody></table>";
+    }catch(e){box.innerHTML='<div class="empty">Could not load the log. Refresh to retry.</div>';}
+  }
+
+  /* ---- reference modal ---- */
+  function openRef(ev){if(ev)ev.preventDefault();$("refov").classList.add("on");document.body.style.overflow="hidden";}
+  function closeRef(){$("refov").classList.remove("on");document.body.style.overflow="";}
+  document.addEventListener("keydown",e=>{if(e.key==="Escape")closeRef();});
+  
+  loadLogs();
+</script>
+</body>
+</html>
+
